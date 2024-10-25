@@ -1,5 +1,5 @@
 asn1
-betterproto==2.0.0b7
+betterproto[compiler]==2.0.0b7
 requests
 rich
 protobuf
