@@ -143,7 +143,8 @@ def parse_at_leaf(raw: bytes):
 @dataclasses.dataclass(init=False)
 class Release:
     index: int
-    expiry: datetime.datetime
+    created: datetime.datetime
+    expires: datetime.datetime
     hash: Optional[bytes]
     assets: list[dict]
     tickets_raw: bytes
@@ -153,9 +154,10 @@ class Release:
 
     def __init__(self, log_leaf: LogLeavesResponseLeaf, at_leaf: ATLeaf) -> None:
         self.index = log_leaf.index
-        self.expiry = at_leaf.expiry
+        self.expires = at_leaf.expiry
         self.hash = at_leaf.hash
         release_metadata = ReleaseMetadata().parse(log_leaf.metadata)
+        self.created = release_metadata.timestamp
         self.assets = [x.to_pydict() for x in release_metadata.assets]
         self.darwin_init = MessageToDict(struct_pb2.Struct.FromString(bytes(release_metadata.darwin_init)))
 
@@ -227,7 +229,8 @@ def serializer(obj):
     if isinstance(obj, (datetime.datetime, datetime.date)):
         return obj.isoformat()
     elif isinstance(obj, bytes):
-        return base64.b64encode(obj).decode()
+        # return base64.b64encode(obj).decode()
+        return obj.hex()
     elif isinstance(obj, (enum.Enum, betterproto.Enum)):
         assert False
         return obj.name
@@ -248,13 +251,21 @@ if __name__ == "__main__":
             rich.print(release, file=f)
         (release_dir / "metadata.json").write_text(
             json.dumps(
-                {i: v for i, v in dataclasses.asdict(release).items() if i in ["index", "expiry", "hash"]},
+                {i: v for i, v in dataclasses.asdict(release).items() if i in ["index", "created", "expires", "hash"]}
+                | {
+                    "tickets": {
+                        "os": hashlib.sha256(release.ap_ticket).hexdigest(),
+                        "cryptexes": [hashlib.sha256(x).hexdigest() for x in release.cryptex_tickets],
+                    }
+                },
                 indent=4,
                 default=serializer,
             )
         )
-        (release_dir / "assets.json").write_text(json.dumps(release.assets, indent=4, default=serializer))
-        (release_dir / "darwin_init.json").write_text(json.dumps(release.darwin_init, indent=4, default=serializer))
+        if release.assets:
+            (release_dir / "assets.json").write_text(json.dumps(release.assets, indent=4, default=serializer))
+        if release.darwin_init:
+            (release_dir / "darwin_init.json").write_text(json.dumps(release.darwin_init, indent=4, default=serializer))
         (release_dir / "tickets_raw.der").write_bytes(release.tickets_raw)
         (release_dir / "apticket.der").write_bytes(release.ap_ticket)
 
