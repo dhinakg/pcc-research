@@ -1,0 +1,48 @@
+[tool.poetry]
+name = "pcc-research"
+version = "0.0.1"
+description = ""
+authors = ["Dhinak G"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+asn1 = "^2.7.1"
+betterproto = {extras = ["compiler"], version = "^2.0.0b7", allow-prereleases = true}
+requests = "^2.32.3"
+rich = "^13.9.3"
+protobuf = "^5.28.3"
+
+[tool.poetry.group.dev.dependencies]
+flake8 = "^7.1.1"
+pylint = "^3.3.1"
+black = "^24.10.0"
+isort = "^5.13.2"
+ruff = "^0.4.9"
+
+
+[tool.isort]
+profile = "black"
+line_length = 140
+
+[tool.black]
+line-length = 140
+
+[tool.pylint.MASTER]
+init-hook = "import os, sys; sys.path.append(os.path.dirname('.'))"
+
+[tool.pylint.format]
+max-line-length = "140"
+
+[tool.pylint.'MESSAGES CONTROL']
+disable = "logging-fstring-interpolation, missing-function-docstring, no-else-return"
+
+# If ruff is your fancy. I haven't completely tested it yet though
+[tool.ruff]
+select = ["E", "F", "W"]
+ignore = []
+line-length = 140
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
