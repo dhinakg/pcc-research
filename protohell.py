@@ -317,6 +317,12 @@ if __name__ == "__main__":
         if target or FETCH_ALL_TREES:
             log_head = get_log_head_for_tree(tree)
 
+            if tree.log_type == LogType.TOP_LEVEL_TREE:
+                # Fetching the log leaves for the top level tree is currently not supported, as there are too many
+                # and the server will return an error
+                # TODO: Add pagination
+                continue
+
             start_index = 0
             end_index = log_head.log_size
             log_leaves = get_log_leaves(tree, start_index, end_index)
