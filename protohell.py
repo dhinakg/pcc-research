@@ -210,6 +210,36 @@ def parse_at_leaf(raw: bytes):
     return ATLeaf(version, type, description, hash, expiry_ms, extensions)
 
 
+# For some reason, this is called a Release in the code, even though the name overlaps with the Release class from SWReleases
+# Ironically, it is aliased to Tickets there, so that is what we will call it here
+def parse_tickets(raw: bytes):
+    decoder = asn1.Decoder()
+    decoder.start(raw)
+    tag = decoder.peek()
+    assert tag.nr == asn1.Numbers.Sequence
+    decoder.enter()
+
+    tag, version = decoder.read()
+    assert tag.nr == asn1.Numbers.Integer
+    assert version == 1
+
+    tag, ap_ticket = decoder.read()
+    assert tag.nr == asn1.Numbers.OctetString
+    ap_ticket: bytes = ap_ticket
+
+    tag = decoder.peek()
+    assert tag.nr == asn1.Numbers.Set
+    cryptex_tickets = []
+    decoder.enter()
+
+    while not decoder.eof():
+        tag, cryptex_ticket = decoder.read()
+        assert tag.nr == asn1.Numbers.OctetString
+        cryptex_tickets.append(cryptex_ticket)
+
+    return ap_ticket, cryptex_tickets
+
+
 @dataclasses.dataclass(init=False)
 class Release:
     release_metadata_present: bool = False
@@ -238,30 +268,7 @@ class Release:
 
         self.tickets_raw = log_leaf.raw_data
         assert self.tickets_raw
-
-        decoder = asn1.Decoder()
-        decoder.start(self.tickets_raw)
-        tag = decoder.peek()
-        assert tag.nr == asn1.Numbers.Sequence
-        decoder.enter()
-
-        tag, version = decoder.read()
-        assert tag.nr == asn1.Numbers.Integer
-        assert version == 1
-
-        tag, ap_ticket = decoder.read()
-        assert tag.nr == asn1.Numbers.OctetString
-        self.ap_ticket: bytes = ap_ticket
-
-        tag = decoder.peek()
-        assert tag.nr == asn1.Numbers.Set
-        self.cryptex_tickets = []
-        decoder.enter()
-
-        while not decoder.eof():
-            tag, cryptex_ticket = decoder.read()
-            assert tag.nr == asn1.Numbers.OctetString
-            self.cryptex_tickets.append(cryptex_ticket)
+        self.ap_ticket, self.cryptex_tickets = parse_tickets(self.tickets_raw)
 
 
 def get_releases_from_leaves(log_leaves: LogLeavesResponse):
