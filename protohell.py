@@ -45,6 +45,8 @@ VERBOSE = True
 SAVE_TO_LOCAL_CACHE = True
 # Save JSON conversions to local cache. Independent of SAVE_TO_LOCAL_CACHE
 SAVE_JSON_TO_LOCAL_CACHE = True
+# Fetch all trees, not just the release trees
+FETCH_ALL_TREES = False
 
 # Use local cache instead of fetching from server. Useful for parsing a dump.
 LOAD_FROM_LOCAL_CACHE = False
@@ -311,15 +313,16 @@ if __name__ == "__main__":
     trees = get_trees()
 
     for tree in trees.trees:
+        target = tree.application == Application.PRIVATE_CLOUD_COMPUTE and tree.log_type == LogType.AT_LOG
+        if target or FETCH_ALL_TREES:
+            log_head = get_log_head_for_tree(tree)
 
-        log_head = get_log_head_for_tree(tree)
+            start_index = 0
+            end_index = log_head.log_size
+            log_leaves = get_log_leaves(tree, start_index, end_index)
 
-        start_index = 0
-        end_index = log_head.log_size
-        log_leaves = get_log_leaves(tree, start_index, end_index)
-
-        if tree.application == Application.PRIVATE_CLOUD_COMPUTE and tree.log_type == LogType.AT_LOG:
-            releases = get_releases_from_leaves(log_leaves)
+            if target:
+                releases = get_releases_from_leaves(log_leaves)
 
     for release in releases:
         if VERBOSE:
