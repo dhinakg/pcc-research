@@ -45,6 +45,8 @@ VERBOSE = True
 SAVE_TO_LOCAL_CACHE = True
 # Save JSON conversions to local cache. Independent of SAVE_TO_LOCAL_CACHE
 SAVE_JSON_TO_LOCAL_CACHE = True
+# Sort saved responses if needed (list trees response)
+SORT_SAVED_RESPONSES = True
 # Fetch all trees, not just the release trees
 FETCH_ALL_TREES = False
 
@@ -103,8 +105,14 @@ def fetch_trees():
         timeout=TIMEOUT,
     )
     resp.raise_for_status()
-    save_to_local_cache(TREES_DIR / "list_trees_response.binpb", resp.content)
-    return resp.content
+    if SORT_SAVED_RESPONSES:
+        trees = ListTreesResponse().parse(resp.content)
+        trees.trees.sort(key=lambda x: x.tree_id)
+        save_to_local_cache(TREES_DIR / "list_trees_response.binpb", bytes(trees))
+        return bytes(trees)
+    else:
+        save_to_local_cache(TREES_DIR / "list_trees_response.binpb", resp.content)
+        return resp.content
 
 
 def get_trees():
