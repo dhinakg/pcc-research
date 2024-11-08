@@ -59,7 +59,6 @@ ONLY_RELEASE_METADATA = False
 
 ROOT_DIR = Path("data")
 TREES_DIR = ROOT_DIR / Path("trees")
-RELEASES_DIR = ROOT_DIR / Path("releases")
 
 REQUEST_UUID = str(uuid.uuid4())
 
@@ -334,59 +333,56 @@ if __name__ == "__main__":
             end_index = log_head.log_size
             log_leaves = get_log_leaves(tree, start_index, end_index)
 
-            if target:
-                releases = get_releases_from_leaves(log_leaves)
+            for release in get_releases_from_leaves(log_leaves):
+                if VERBOSE:
+                    rich.print(release)
 
-    for release in releases:
-        if VERBOSE:
-            rich.print(release)
+                release_dir = TREES_DIR / str(tree.tree_id) / "releases" / f"{release.index}"
+                if not ONLY_RELEASE_METADATA:
+                    write(
+                        release_dir / "metadata.json",
+                        json.dumps(
+                            convert_enum_to_name(
+                                {
+                                    i: v
+                                    for i, v in dataclasses.asdict(release).items()
+                                    if i not in ["assets", "tickets_raw", "ap_ticket", "cryptex_tickets", "darwin_init"]
+                                }
+                                | {
+                                    "tickets": {
+                                        "os": hashlib.sha256(release.ap_ticket).hexdigest(),
+                                        "cryptexes": [hashlib.sha256(x).hexdigest() for x in release.cryptex_tickets],
+                                    }
+                                }
+                            ),
+                            indent=4,
+                            cls=ReleaseEncoder,
+                        ),
+                    )
+                    if release.assets:
+                        write(release_dir / "assets.json", json.dumps(convert_enum_to_name(release.assets), indent=4, cls=ReleaseEncoder))
+                    if release.darwin_init:
+                        write(release_dir / "darwin_init.json", json.dumps(release.darwin_init, indent=4, cls=ReleaseEncoder))
+                    write(release_dir / "tickets_raw.der", release.tickets_raw)
+                    write(release_dir / "apticket.der", release.ap_ticket)
 
-        release_dir = RELEASES_DIR / f"{release.index}"
-        if not ONLY_RELEASE_METADATA:
-            write(
-                release_dir / "metadata.json",
-                json.dumps(
-                    convert_enum_to_name(
-                        {
-                            i: v
-                            for i, v in dataclasses.asdict(release).items()
-                            if i not in ["assets", "tickets_raw", "ap_ticket", "cryptex_tickets", "darwin_init"]
-                        }
-                        | {
-                            "tickets": {
-                                "os": hashlib.sha256(release.ap_ticket).hexdigest(),
-                                "cryptexes": [hashlib.sha256(x).hexdigest() for x in release.cryptex_tickets],
-                            }
-                        }
-                    ),
-                    indent=4,
-                    cls=ReleaseEncoder,
-                ),
-            )
-            if release.assets:
-                write(release_dir / "assets.json", json.dumps(convert_enum_to_name(release.assets), indent=4, cls=ReleaseEncoder))
-            if release.darwin_init:
-                write(release_dir / "darwin_init.json", json.dumps(release.darwin_init, indent=4, cls=ReleaseEncoder))
-            write(release_dir / "tickets_raw.der", release.tickets_raw)
-            write(release_dir / "apticket.der", release.ap_ticket)
+                    cryptex_tickets_dir = release_dir / "cryptex_tickets"
+                    for i, ticket in enumerate(release.cryptex_tickets):
+                        write(cryptex_tickets_dir / f"cryptex_ticket_{i}.der", ticket)
 
-            cryptex_tickets_dir = release_dir / "cryptex_tickets"
-            for i, ticket in enumerate(release.cryptex_tickets):
-                write(cryptex_tickets_dir / f"cryptex_ticket_{i}.der", ticket)
-
-        if release.release_metadata_present:
-            assert release.created
-            write(
-                release_dir / "release-metadata.json",
-                json.dumps(
-                    {
-                        "assets": convert_enum_to_name(release.assets),
-                        "darwinInit": release.darwin_init,
-                        "schemaVersion": convert_enum_to_name(release.schema),
-                        "timestamp": release.created.replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    },
-                    indent=2,
-                    sort_keys=True,
-                    cls=ReleaseEncoder,
-                ),
-            )
+                if release.release_metadata_present:
+                    assert release.created
+                    write(
+                        release_dir / "release-metadata.json",
+                        json.dumps(
+                            {
+                                "assets": convert_enum_to_name(release.assets),
+                                "darwinInit": release.darwin_init,
+                                "schemaVersion": convert_enum_to_name(release.schema),
+                                "timestamp": release.created.replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            },
+                            indent=2,
+                            sort_keys=True,
+                            cls=ReleaseEncoder,
+                        ),
+                    )

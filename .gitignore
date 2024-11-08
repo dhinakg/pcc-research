@@ -162,6 +162,6 @@ cython_debug/
 #.idea/
 
 .DS_Store
-releases/
+data/
 lib/
 proto/
