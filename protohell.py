@@ -32,9 +32,11 @@ from lib import (
     LogLeavesResponseLeaf,
     LogType,
     NodeType,
+    PerApplicationTreeNode,
     ProtocolVersion,
     ReleaseMetadata,
     ReleaseMetadataSchemaVersion,
+    Status,
 )
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -49,6 +51,8 @@ SAVE_JSON_TO_LOCAL_CACHE = True
 SORT_SAVED_RESPONSES = True
 # Fetch all trees, not just the release trees
 FETCH_ALL_TREES = False
+# Fetch top level tree, requires FETCH_ALL_TREES. Explicit flag as it is ~100MB
+FETCH_TOP_LEVEL_TREE = False
 
 # Use local cache instead of fetching from server. Useful for parsing a dump.
 LOAD_FROM_LOCAL_CACHE = False
@@ -153,20 +157,40 @@ def get_log_head_for_tree(tree: ListTreesResponseTree):
 def fetch_log_leaves(tree: ListTreesResponseTree, start_index: int, end_index: int):
     if LOAD_FROM_LOCAL_CACHE:
         return (TREES_DIR / str(tree.tree_id) / "log_leaves.binpb").read_bytes()
-    body = LogLeavesRequest(ProtocolVersion.V3, tree.tree_id, start_index, end_index, REQUEST_UUID, 0, tree.merge_groups)
-    resp = SESSION.post(
-        BAG["at-researcher-log-leaves"],
-        data=bytes(body),
-        timeout=TIMEOUT,
-    )
-    resp.raise_for_status()
-    save_to_local_cache(TREES_DIR / str(tree.tree_id) / "log_leaves.binpb", resp.content)
-    return resp.content
+
+    leaves_response = None
+
+    current = start_index
+    while current < end_index:
+        rich.print(f"Fetching {tree.log_type} leaves {current} to {min(current + 10000, end_index)}")
+        current_end = min(current + 10000, end_index)
+        body = LogLeavesRequest(ProtocolVersion.V3, tree.tree_id, current, current_end, REQUEST_UUID, 0, tree.merge_groups)
+        resp = SESSION.post(
+            BAG["at-researcher-log-leaves"],
+            data=bytes(body),
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        log_leaves = LogLeavesResponse().parse(resp.content)
+
+        if not leaves_response:
+            leaves_response = log_leaves
+        else:
+            leaves_response.leaves.extend(log_leaves.leaves)
+
+        current = current_end
+
+    assert leaves_response
+
+    raw = bytes(leaves_response)
+    save_to_local_cache(TREES_DIR / str(tree.tree_id) / "log_leaves.binpb", raw)
+    return raw
 
 
 def get_log_leaves(tree: ListTreesResponseTree, start_index: int, end_index: int):
     raw = fetch_log_leaves(tree, start_index, end_index)
     log_leaves = LogLeavesResponse().parse(raw)
+    assert log_leaves.status == Status.OK
     save_json_to_local_cache(TREES_DIR / str(tree.tree_id) / "log_leaves.json", log_leaves)
 
     return log_leaves
@@ -321,9 +345,88 @@ class ReleaseEncoder(json.JSONEncoder):
             return super().default(o)
 
 
-if __name__ == "__main__":
-    releases = []
+def process_releases(tree_path: Path, log_leaves: LogLeavesResponse):
+    for release in get_releases_from_leaves(log_leaves):
+        if VERBOSE:
+            rich.print(release)
 
+        release_dir = tree_path / "releases" / f"{release.index}"
+        if not ONLY_RELEASE_METADATA:
+            write(
+                release_dir / "metadata.json",
+                json.dumps(
+                    convert_enum_to_name(
+                        {
+                            i: v
+                            for i, v in dataclasses.asdict(release).items()
+                            if i not in ["assets", "tickets_raw", "ap_ticket", "cryptex_tickets", "darwin_init"]
+                        }
+                        | {
+                            "tickets": {
+                                "os": hashlib.sha256(release.ap_ticket).hexdigest(),
+                                "cryptexes": [hashlib.sha256(x).hexdigest() for x in release.cryptex_tickets],
+                            }
+                        }
+                    ),
+                    indent=4,
+                    cls=ReleaseEncoder,
+                ),
+            )
+            if release.assets:
+                write(release_dir / "assets.json", json.dumps(convert_enum_to_name(release.assets), indent=4, cls=ReleaseEncoder))
+            if release.darwin_init:
+                write(release_dir / "darwin_init.json", json.dumps(release.darwin_init, indent=4, cls=ReleaseEncoder))
+            write(release_dir / "tickets_raw.der", release.tickets_raw)
+            write(release_dir / "apticket.der", release.ap_ticket)
+
+            cryptex_tickets_dir = release_dir / "cryptex_tickets"
+            for i, ticket in enumerate(release.cryptex_tickets):
+                write(cryptex_tickets_dir / f"cryptex_ticket_{i}.der", ticket)
+
+        if release.release_metadata_present:
+            assert release.created
+            write(
+                release_dir / "release-metadata.json",
+                json.dumps(
+                    {
+                        "assets": convert_enum_to_name(release.assets),
+                        "darwinInit": release.darwin_init,
+                        "schemaVersion": convert_enum_to_name(release.schema),
+                        "timestamp": release.created.replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    },
+                    indent=2,
+                    sort_keys=True,
+                    cls=ReleaseEncoder,
+                ),
+            )
+
+
+def get_log_heads_from_leaves(log_leaves: LogLeavesResponse):
+    log_heads: list[LogHead] = []
+
+    for log_leaf in log_leaves.leaves:
+        if log_leaf.node_type == NodeType.PAT_NODE:
+            pat_node = PerApplicationTreeNode().parse(log_leaf.node_bytes)
+            log_head = LogHead().parse(pat_node.predecessor_head.object)
+            log_heads.append(log_head)
+
+    return log_heads
+
+
+def process_log_heads(tree_path: Path, log_leaves: LogLeavesResponse):
+    log_heads = get_log_heads_from_leaves(log_leaves)
+    if not log_heads:
+        return
+
+    for log_head in log_heads:
+        if VERBOSE:
+            rich.print(log_head)
+
+    log_heads_path = tree_path / "log_heads.json"
+    write(log_heads_path, json.dumps([x.to_dict() for x in log_heads], indent=4))
+
+
+def main():
     trees = get_trees()
 
     for tree in trees.trees:
@@ -331,66 +434,18 @@ if __name__ == "__main__":
         if target or FETCH_ALL_TREES:
             log_head = get_log_head_for_tree(tree)
 
-            if tree.log_type == LogType.TOP_LEVEL_TREE:
-                # Fetching the log leaves for the top level tree is currently not supported, as there are too many
-                # and the server will return an error
-                # TODO: Add pagination
+            if tree.log_type == LogType.TOP_LEVEL_TREE and not FETCH_TOP_LEVEL_TREE:
                 continue
 
             start_index = 0
             end_index = log_head.log_size
             log_leaves = get_log_leaves(tree, start_index, end_index)
 
-            for release in get_releases_from_leaves(log_leaves):
-                if VERBOSE:
-                    rich.print(release)
+            tree_save_path = TREES_DIR / str(tree.tree_id)
 
-                release_dir = TREES_DIR / str(tree.tree_id) / "releases" / f"{release.index}"
-                if not ONLY_RELEASE_METADATA:
-                    write(
-                        release_dir / "metadata.json",
-                        json.dumps(
-                            convert_enum_to_name(
-                                {
-                                    i: v
-                                    for i, v in dataclasses.asdict(release).items()
-                                    if i not in ["assets", "tickets_raw", "ap_ticket", "cryptex_tickets", "darwin_init"]
-                                }
-                                | {
-                                    "tickets": {
-                                        "os": hashlib.sha256(release.ap_ticket).hexdigest(),
-                                        "cryptexes": [hashlib.sha256(x).hexdigest() for x in release.cryptex_tickets],
-                                    }
-                                }
-                            ),
-                            indent=4,
-                            cls=ReleaseEncoder,
-                        ),
-                    )
-                    if release.assets:
-                        write(release_dir / "assets.json", json.dumps(convert_enum_to_name(release.assets), indent=4, cls=ReleaseEncoder))
-                    if release.darwin_init:
-                        write(release_dir / "darwin_init.json", json.dumps(release.darwin_init, indent=4, cls=ReleaseEncoder))
-                    write(release_dir / "tickets_raw.der", release.tickets_raw)
-                    write(release_dir / "apticket.der", release.ap_ticket)
+            process_releases(tree_save_path, log_leaves)
+            process_log_heads(tree_save_path, log_leaves)
 
-                    cryptex_tickets_dir = release_dir / "cryptex_tickets"
-                    for i, ticket in enumerate(release.cryptex_tickets):
-                        write(cryptex_tickets_dir / f"cryptex_ticket_{i}.der", ticket)
 
-                if release.release_metadata_present:
-                    assert release.created
-                    write(
-                        release_dir / "release-metadata.json",
-                        json.dumps(
-                            {
-                                "assets": convert_enum_to_name(release.assets),
-                                "darwinInit": release.darwin_init,
-                                "schemaVersion": convert_enum_to_name(release.schema),
-                                "timestamp": release.created.replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                            },
-                            indent=2,
-                            sort_keys=True,
-                            cls=ReleaseEncoder,
-                        ),
-                    )
+if __name__ == "__main__":
+    main()
