@@ -53,6 +53,8 @@ SORT_SAVED_RESPONSES = True
 FETCH_ALL_TREES = False
 # Fetch top level tree, requires FETCH_ALL_TREES. Explicit flag as it is ~100MB
 FETCH_TOP_LEVEL_TREE = False
+# Number of leaves to fetch per request
+LEAVES_PER_REQUEST = 10000
 
 # Use local cache instead of fetching from server. Useful for parsing a dump.
 LOAD_FROM_LOCAL_CACHE = False
@@ -162,8 +164,8 @@ def fetch_log_leaves(tree: ListTreesResponseTree, start_index: int, end_index: i
 
     current = start_index
     while current < end_index:
-        rich.print(f"Fetching {tree.log_type} leaves {current} to {min(current + 10000, end_index)}")
-        current_end = min(current + 10000, end_index)
+        current_end = min(current + LEAVES_PER_REQUEST, end_index)
+        rich.print(f"Fetching {tree.log_type} {tree.tree_id} leaves {current} to {current_end}")
         body = LogLeavesRequest(ProtocolVersion.V3, tree.tree_id, current, current_end, REQUEST_UUID, 0, tree.merge_groups)
         resp = SESSION.post(
             BAG["at-researcher-log-leaves"],
