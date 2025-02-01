@@ -83,7 +83,7 @@ BAG = plistlib.loads(SESSION.get(BAG_URL, timeout=TIMEOUT).content)
 def write(path: Path, content: str | bytes):
     path.parent.mkdir(exist_ok=True, parents=True)
     if isinstance(content, str):
-        path.write_text(content)
+        path.write_text(content, newline="\n")
     else:
         path.write_bytes(content)
 
