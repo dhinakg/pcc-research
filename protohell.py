@@ -281,11 +281,14 @@ class Release:
     created: Optional[datetime.datetime] = None
     expires: Optional[datetime.datetime] = None
     hash: Optional[bytes]
+    digest: Optional[bytes] = None
     assets: Optional[list[dict]] = None
     tickets_raw: bytes
     ap_ticket: bytes
     cryptex_tickets: list[bytes]
     darwin_init: Optional[dict] = None
+    requirements: Optional[list[dict]] = None
+    application: Optional[dict] = None
 
     def __init__(self, log_leaf: LogLeavesResponseLeaf, at_leaf: ATLeaf) -> None:
         self.index = log_leaf.index
@@ -295,9 +298,13 @@ class Release:
             self.release_metadata_present = True
             release_metadata = ReleaseMetadata().parse(log_leaf.metadata)
             self.schema = release_metadata.schema_version
-            self.created = release_metadata.timestamp
+            self.created = release_metadata.release_creation
+            self.digest = release_metadata.release_digest
+            assert self.digest == self.hash, "Digest and hash mismatch"
             self.assets = [x.to_pydict() for x in release_metadata.assets]
             self.darwin_init = MessageToDict(struct_pb2.Struct.FromString(bytes(release_metadata.darwin_init)))  # pylint: disable=no-member
+            self.requirements = [x.to_pydict() for x in release_metadata.requirements]
+            self.application = release_metadata.application.to_pydict() or None
 
         self.tickets_raw = log_leaf.raw_data
         assert self.tickets_raw
@@ -347,6 +354,18 @@ class ReleaseEncoder(json.JSONEncoder):
             return super().default(o)
 
 
+class ReleaseMetadataEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, datetime.datetime):
+            return o.isoformat(timespec="microseconds")
+        elif isinstance(o, datetime.date):
+            return o.isoformat()
+        elif isinstance(o, bytes):
+            return base64.b64encode(o).decode()
+        else:
+            return super().default(o)
+
+
 def process_releases(tree_path: Path, log_leaves: LogLeavesResponse):
     for release in get_releases_from_leaves(log_leaves):
         if VERBOSE:
@@ -391,14 +410,17 @@ def process_releases(tree_path: Path, log_leaves: LogLeavesResponse):
                 release_dir / "release-metadata.json",
                 json.dumps(
                     {
+                        "schemaVersion": convert_enum_to_name(release.schema),
+                        # Unfortunately, this is a lossy operation, as datetime objects cannot store nanosecond precision
+                        "releaseCreation": release.created.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                        "releaseDigest": release.digest,
                         "assets": convert_enum_to_name(release.assets),
                         "darwinInit": release.darwin_init,
-                        "schemaVersion": convert_enum_to_name(release.schema),
-                        "timestamp": release.created.replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "application": release.application,
                     },
                     indent=2,
-                    sort_keys=True,
-                    cls=ReleaseEncoder,
+                    sort_keys=False,
+                    cls=ReleaseMetadataEncoder,
                 ),
             )
 

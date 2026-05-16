@@ -5,7 +5,9 @@ Assorted PCC research
 ## Releases
 
 1. Make a `proto` folder. Copy the following files from the PCC repository:
-   - `./srd_tools/vre/pccvre/SWReleases/Proto/ReleaseMetadata.proto`
+   - `./CloudAttestation/CloudAttestation/Proto/AttestationBundle.proto`
+   - `./CloudAttestation/CloudAttestation/Proto/PrivateCloudCompute.proto`
+   - `./CloudAttestation/CloudAttestation/Proto/PrivateCloudComputeEnvironment.proto`
    - `./srd_tools/vre/pccvre/TransparencyLog/Proto/ATResearcherApi.proto`
    - `./srd_tools/vre/pccvre/TransparencyLog/Proto/ATServiceApi.proto`
    - `./srd_tools/vre/pccvre/TransparencyLog/Proto/AuditorApi.proto`
