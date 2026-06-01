@@ -1,3 +1,4 @@
+import base64
 import dataclasses
 import datetime
 import enum
@@ -24,6 +25,7 @@ from lib import (
     ListTreesRequest,
     ListTreesResponse,
     ListTreesResponseTree,
+    LogEntry,
     LogHead,
     LogHeadRequest,
     LogHeadResponse,
@@ -289,8 +291,9 @@ class Release:
     darwin_init: Optional[dict] = None
     requirements: Optional[list[dict]] = None
     application: Optional[dict] = None
+    build_version: Optional[str] = None
 
-    def __init__(self, log_leaf: LogLeavesResponseLeaf, at_leaf: ATLeaf) -> None:
+    def __init__(self, log_leaf: LogLeavesResponseLeaf | LogEntry, at_leaf: ATLeaf) -> None:
         self.index = log_leaf.index
         self.expires = at_leaf.expiry
         self.hash = at_leaf.hash
@@ -305,6 +308,7 @@ class Release:
             self.darwin_init = MessageToDict(struct_pb2.Struct.FromString(bytes(release_metadata.darwin_init)))  # pylint: disable=no-member
             self.requirements = [x.to_pydict() for x in release_metadata.requirements]
             self.application = release_metadata.application.to_pydict() or None
+            self.build_version = release_metadata.build_version or None
 
         self.tickets_raw = log_leaf.raw_data
         assert self.tickets_raw
@@ -339,7 +343,7 @@ def convert_enum_to_name(obj):
     elif isinstance(obj, list):
         return [convert_enum_to_name(x) for x in obj]
     elif isinstance(obj, dict):
-        return {k: convert_enum_to_name(v) for k, v in obj.items()}
+        return {convert_enum_to_name(k): convert_enum_to_name(v) for k, v in obj.items()}
     else:
         return obj
 
@@ -416,7 +420,9 @@ def process_releases(tree_path: Path, log_leaves: LogLeavesResponse):
                         "releaseDigest": release.digest,
                         "assets": convert_enum_to_name(release.assets),
                         "darwinInit": release.darwin_init,
+                        "requirements": release.requirements,
                         "application": release.application,
+                        "buildVersion": release.build_version,
                     },
                     indent=2,
                     sort_keys=False,

@@ -13,6 +13,10 @@ Assorted PCC research
    - `./srd_tools/vre/pccvre/TransparencyLog/Proto/AuditorApi.proto`
    - `./srd_tools/vre/pccvre/TransparencyLog/Proto/KtClientApi.proto`
    - `./srd_tools/vre/pccvre/TransparencyLog/Proto/Transparency.proto`
+
+   You may need to remove package references.
+
+   Additionally, download https://github.com/protocolbuffers/protobuf/tree/main/src/google and place it in the folder.
 2. Set up venv (or use Poetry, if you have it installed)
    1. `python3 -m venv .env`
    2. `source .env/bin/activate`

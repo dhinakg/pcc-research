@@ -12,6 +12,8 @@ betterproto = {extras = ["compiler"], version = "^2.0.0b7", allow-prereleases = 
 requests = "^2.32.3"
 rich = "^13.9.4"
 protobuf = "^5.29.3"
+natsort = "^8.4.0"
+pyimg4 = "^0.8.7"
 
 [tool.poetry.group.dev.dependencies]
 flake8 = "^7.1.2"
